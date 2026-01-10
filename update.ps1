@@ -9,10 +9,12 @@ $SCRIPT:Cfg = [ordered]@{
   DataDirName     = "data"
   CurrentFileName = "current.txt"
 
+  # Defaults (can be overridden by CLI args)
   Platform        = "win32-x64-archive"
   Quality         = "stable"
 
   UpdateApi       = "https://update.code.visualstudio.com/api/update"
+  DownloadBase    = "https://update.code.visualstudio.com"
 
   UserAgent       = "vscode-portable-updater/0.1"
 }
@@ -28,6 +30,40 @@ function Write-Log {
   Write-Host "[$ts][$Level] $Message"
 }
 #endregion Logger
+
+#region Args
+function Parse-Args {
+  param([string[]]$Arguments)
+
+  $result = @{
+    Platform = $null
+    Quality  = $null
+    Version  = $null
+  }
+
+  for ($i = 0; $i -lt $Arguments.Length; $i++) {
+    switch ($Arguments[$i]) {
+      "--platform" {
+        $i++; if ($i -ge $Arguments.Length) { throw "Missing value for --platform" }
+        $result.Platform = $Arguments[$i]
+      }
+      "--quality" {
+        $i++; if ($i -ge $Arguments.Length) { throw "Missing value for --quality" }
+        $result.Quality = $Arguments[$i]
+      }
+      "--version" {
+        $i++; if ($i -ge $Arguments.Length) { throw "Missing value for --version" }
+        $result.Version = $Arguments[$i]
+      }
+      default {
+        throw "Unknown argument: $($Arguments[$i])"
+      }
+    }
+  }
+
+  return $result
+}
+#endregion Args
 
 #region Paths / Environment
 function Get-Paths {
@@ -87,14 +123,15 @@ function Set-CurrentVersionAtomically {
 
 #region VersionSource
 function Get-LatestVersionInfo {
-  $url = "$($SCRIPT:Cfg.UpdateApi)/$($SCRIPT:Cfg.Platform)/$($SCRIPT:Cfg.Quality)/latest"
+  param(
+    [Parameter(Mandatory)][string]$Platform,
+    [Parameter(Mandatory)][string]$Quality
+  )
 
+  $url = "$($SCRIPT:Cfg.UpdateApi)/$Platform/$Quality/latest"
   Write-Log INFO "Fetching latest version info: $url"
 
-  $headers = @{
-    "User-Agent" = $SCRIPT:Cfg.UserAgent
-  }
-
+  $headers = @{ "User-Agent" = $SCRIPT:Cfg.UserAgent }
   $info = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
 
   if (-not $info.url -or -not $info.sha256hash -or -not $info.name) {
@@ -102,9 +139,30 @@ function Get-LatestVersionInfo {
   }
 
   return [ordered]@{
-    Version     = [string]$info.name          # e.g. 1.108.0
-    DownloadUrl = [string]$info.url           # Actual URL
-    Sha256      = [string]$info.sha256hash    # Checksum
+    Version     = [string]$info.name
+    DownloadUrl = [string]$info.url
+    Sha256      = [string]$info.sha256hash
+    HasChecksum = $true
+  }
+}
+
+function Get-SpecifiedVersionInfo {
+  param(
+    [Parameter(Mandatory)][string]$Version,
+    [Parameter(Mandatory)][string]$Platform,
+    [Parameter(Mandatory)][string]$Quality
+  )
+
+  $url = "$($SCRIPT:Cfg.DownloadBase)/$Version/$Platform/$Quality"
+
+  Write-Log INFO "Using specified version: $Version"
+  Write-Log INFO "Download URL: $url"
+
+  return [ordered]@{
+    Version     = $Version
+    DownloadUrl = $url
+    Sha256      = $null
+    HasChecksum = $false
   }
 }
 #endregion VersionSource
@@ -254,7 +312,7 @@ function Backup-CurrentData {
   New-Item -ItemType Directory -Force -Path $dest | Out-Null
 
   Write-Log INFO "Backing up data/current -> $dest"
-  Copy-Item -LiteralPath $P.CurrentData\* -Destination $dest -Recurse -Force
+  Copy-Item -Path (Join-Path $P.CurrentData "*") -Destination $dest -Recurse -Force
 
   return $dest
 }
@@ -262,6 +320,17 @@ function Backup-CurrentData {
 
 #region Main
 function Main {
+  param([string[]]$Arguments = @())
+  
+  # Parse CLI args
+  $opts = Parse-Args $Arguments
+
+  if ($opts.Platform) { $SCRIPT:Cfg.Platform = $opts.Platform }
+  if ($opts.Quality)  { $SCRIPT:Cfg.Quality  = $opts.Quality  }
+
+  Write-Log INFO "Platform: $($SCRIPT:Cfg.Platform)"
+  Write-Log INFO "Quality : $($SCRIPT:Cfg.Quality)"
+
   $P = Get-Paths
   Ensure-Directories -P $P
 
@@ -272,21 +341,35 @@ function Main {
     Write-Log INFO "Current version: (not set yet)"
   }
 
-  # Get latest version info (Step1)
-  $latest = Get-LatestVersionInfo
-  Write-Log INFO "Latest version: $($latest.Version)"
+  # Decide version source
+  if ($opts.Version) {
+    $target = Get-SpecifiedVersionInfo `
+      -Version $opts.Version `
+      -Platform $SCRIPT:Cfg.Platform `
+      -Quality $SCRIPT:Cfg.Quality
+  } else {
+    $target = Get-LatestVersionInfo `
+      -Platform $SCRIPT:Cfg.Platform `
+      -Quality $SCRIPT:Cfg.Quality
+  }
 
-  # Spec: Check if update needed
-  if ($cur -and $cur -eq $latest.Version) {
-    Write-Log INFO "No update needed. Already on latest: $cur"
+  Write-Log INFO "Target version: $($target.Version)"
+
+  # If same as current, do nothing
+  if ($cur -and $cur -eq $target.Version) {
+    Write-Log INFO "No update needed. Already on target: $cur"
     return
   }
 
   # Download
-  $zip = Download-Zip -P $P -Url $latest.DownloadUrl -Version $latest.Version
+  $zip = Download-Zip -P $P -Url $target.DownloadUrl -Version $target.Version
 
-  # Verify checksum (mandatory in Step1)
-  Verify-Checksum -FilePath $zip -ExpectedSha256 $latest.Sha256
+  # Verify checksum if available
+  if ($target.HasChecksum) {
+    Verify-Checksum -FilePath $zip -ExpectedSha256 $target.Sha256
+  } else {
+    Write-Log WARN "No checksum available for this download. Skipping verification."
+  }
 
   # Install / inspect
   $result = Install-ZipIfNeeded -P $P -ZipPath $zip
@@ -306,7 +389,7 @@ function Main {
 }
 
 try {
-  Main
+  Main -Arguments $args
 } catch {
   $err = $_ | Out-String
   Write-Log ERROR "Unhandled exception:"
