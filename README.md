@@ -1,1 +1,1 @@
-# update-vscode-portable
+# vscode-portable

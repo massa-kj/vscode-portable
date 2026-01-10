@@ -1,0 +1,12 @@
+# Runtime artifacts (do not commit)
+/versions/
+/data/
+/current.txt
+
+# Working folders
+/_tmp/
+/_downloads/
+
+# Download leftovers
+*.tmp
+*.zip
