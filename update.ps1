@@ -9,13 +9,12 @@ $SCRIPT:Cfg = [ordered]@{
   DataDirName     = "data"
   CurrentFileName = "current.txt"
 
-  # Official VS Code download endpoint (always latest)
-  DownloadUrl     = "https://code.visualstudio.com/sha/download?build=stable&os=win32-x64-archive"
+  Platform        = "win32-x64-archive"
+  Quality         = "stable"
+
+  UpdateApi       = "https://update.code.visualstudio.com/api/update"
 
   UserAgent       = "vscode-portable-updater/0.1"
-
-  # Feature flags (future)
-  EnableChecksumVerification = $false
 }
 #endregion Config
 
@@ -86,29 +85,86 @@ function Set-CurrentVersionAtomically {
 }
 #endregion Current Version
 
+#region VersionSource
+function Get-LatestVersionInfo {
+  $url = "$($SCRIPT:Cfg.UpdateApi)/$($SCRIPT:Cfg.Platform)/$($SCRIPT:Cfg.Quality)/latest"
+
+  Write-Log INFO "Fetching latest version info: $url"
+
+  $headers = @{
+    "User-Agent" = $SCRIPT:Cfg.UserAgent
+  }
+
+  $info = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
+
+  if (-not $info.url -or -not $info.sha256hash -or -not $info.name) {
+    throw "Invalid update API response."
+  }
+
+  return [ordered]@{
+    Version     = [string]$info.name          # e.g. 1.108.0
+    DownloadUrl = [string]$info.url           # Actual URL
+    Sha256      = [string]$info.sha256hash    # Checksum
+  }
+}
+#endregion VersionSource
+
 #region Downloader
-function Download-LatestZip {
+function Download-Zip {
   param(
-    [Parameter(Mandatory)][hashtable]$P
+    [Parameter(Mandatory)][hashtable]$P,
+    [Parameter(Mandatory)][string]$Url,
+    [Parameter(Mandatory)][string]$Version
   )
 
-  $zipPath = Join-Path $P.Downloads "vscode-latest.zip"
+  $zipPath = Join-Path $P.Downloads "vscode-$Version.zip"
   $zipTmp  = "$zipPath.tmp"
 
-  Write-Log INFO "Downloading latest VS Code from official endpoint..."
-  Invoke-WebRequest -Uri $SCRIPT:Cfg.DownloadUrl -OutFile $zipTmp -UseBasicParsing
+  if (Test-Path $zipPath) {
+    Write-Log INFO "Zip already exists, verifying integrity..."
 
+    try {
+      # Quick check: try opening as zip
+      Add-Type -AssemblyName System.IO.Compression.FileSystem
+      $fs = [System.IO.File]::OpenRead($zipPath)
+      try {
+        $zip = New-Object System.IO.Compression.ZipArchive($fs)
+        $zip.Dispose()
+      } finally {
+        $fs.Dispose()
+      }
+
+      Write-Log INFO "Existing zip looks valid, reuse: $zipPath"
+      return $zipPath
+    } catch {
+      Write-Log WARN "Existing zip is broken. Redownloading..."
+      Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
+    }
+  }
+
+  Write-Log INFO "Downloading VS Code $Version ..."
+  Invoke-WebRequest -Uri $Url -OutFile $zipTmp -UseBasicParsing
   Move-Item -LiteralPath $zipTmp -Destination $zipPath -Force
+
   return $zipPath
 }
 
-function Verify-ChecksumIfEnabled {
-  param([Parameter(Mandatory)][string]$FilePath)
+function Verify-Checksum {
+  param(
+    [Parameter(Mandatory)][string]$FilePath,
+    [Parameter(Mandatory)][string]$ExpectedSha256
+  )
 
-  if (-not $SCRIPT:Cfg.EnableChecksumVerification) { return }
+  Write-Log INFO "Verifying SHA256 checksum..."
 
-  # Spec hook only (not implemented yet)
-  throw "Checksum verification is enabled but not implemented."
+  $actual = (Get-FileHash -Algorithm SHA256 -LiteralPath $FilePath).Hash.ToLower()
+  $expected = $ExpectedSha256.ToLower()
+
+  if ($actual -ne $expected) {
+    throw "Checksum mismatch! expected=$expected actual=$actual"
+  }
+
+  Write-Log INFO "Checksum OK."
 }
 #endregion Downloader
 
@@ -216,19 +272,25 @@ function Main {
     Write-Log INFO "Current version: (not set yet)"
   }
 
+  # Get latest version info (Step1)
+  $latest = Get-LatestVersionInfo
+  Write-Log INFO "Latest version: $($latest.Version)"
+
+  # Spec: Check if update needed
+  if ($cur -and $cur -eq $latest.Version) {
+    Write-Log INFO "No update needed. Already on latest: $cur"
+    return
+  }
+
   # Download
-  $zip = Download-LatestZip -P $P
-  Verify-ChecksumIfEnabled -FilePath $zip
+  $zip = Download-Zip -P $P -Url $latest.DownloadUrl -Version $latest.Version
+
+  # Verify checksum (mandatory in Step1)
+  Verify-Checksum -FilePath $zip -ExpectedSha256 $latest.Sha256
 
   # Install / inspect
   $result = Install-ZipIfNeeded -P $P -ZipPath $zip
   $newVer = $result.Version
-
-  # Spec: "最新版と同じなら何もしない"
-  if ($cur -and $cur -eq $newVer) {
-    Write-Log INFO "No update needed. Already on latest: $cur"
-    return
-  }
 
   # Backup current data
   $backupPath = Backup-CurrentData -P $P
@@ -246,7 +308,9 @@ function Main {
 try {
   Main
 } catch {
-  Write-Log ERROR $_.Exception.Message
+  $err = $_ | Out-String
+  Write-Log ERROR "Unhandled exception:"
+  Write-Log ERROR $err
   Write-Log ERROR "Update aborted. Current version pointer was not changed unless explicitly logged as switched."
   throw
 }
