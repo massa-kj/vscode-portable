@@ -21,6 +21,57 @@ $SCRIPT:Cfg = [ordered]@{
 
   UserAgent       = "vscode-portable-updater/0.1"
 }
+
+# Directory structure specification - defines workspace layout
+$SCRIPT:DirectorySpecs = @{
+  "Versions" = @{
+    RelativePath = $null  # Will use VersionsDirName from Cfg
+    AutoCreate = $true
+    Description = "VS Code version installations"
+  }
+  "Data" = @{
+    RelativePath = $null  # Will use DataDirName from Cfg  
+    AutoCreate = $true
+    Description = "User data and settings storage"
+  }
+  "CurrentData" = @{
+    RelativePath = "data/current"
+    AutoCreate = $true
+    Description = "Active user data and extensions"
+  }
+  "Backups" = @{
+    RelativePath = "data/backups"
+    AutoCreate = $true
+    Description = "Timestamped user data backups"
+  }
+  "Tmp" = @{
+    RelativePath = "_tmp"
+    AutoCreate = $true
+    Description = "Temporary files during operations"
+  }
+  "Downloads" = @{
+    RelativePath = "_downloads"
+    AutoCreate = $true
+    Description = "Downloaded VS Code archives cache"
+  }
+  "CurrentTxt" = @{
+    RelativePath = $null  # Will use CurrentFileName from Cfg
+    AutoCreate = $false
+    Description = "Current version pointer file"
+    IsFile = $true
+  }
+  # Sub-directories that need special handling
+  "UserData" = @{
+    RelativePath = "data/current/user-data"
+    AutoCreate = $true
+    Description = "VS Code user configuration and settings"
+  }
+  "Extensions" = @{
+    RelativePath = "data/current/extensions"
+    AutoCreate = $true
+    Description = "VS Code extensions storage"
+  }
+}
 #endregion Config
 
 #region Logger
@@ -69,6 +120,13 @@ $SCRIPT:ArgSpecs = @{
     Type = "Flag"
     Required = $false
     Description = "Show this help message and exit"
+    ValidValues = $null
+  }
+  "--show-paths" = @{
+    PropertyName = "ShowPaths"
+    Type = "Flag"
+    Required = $false
+    Description = "Show directory configuration and exit"
     ValidValues = $null
   }
 }
@@ -154,6 +212,12 @@ function Parse-Args {
     exit 0
   }
 
+  # Check if show-paths was requested  
+  if ($result.ShowPaths) {
+    Get-DirectoryInfo
+    exit 0
+  }
+
   # Check required arguments
   foreach ($argName in $SCRIPT:ArgSpecs.Keys) {
     $spec = $SCRIPT:ArgSpecs[$argName]
@@ -220,41 +284,92 @@ function Show-Help {
 #region Paths / Environment
 # File path management and directory initialization module.
 # Responsibilities:
-# - Calculates and provides standardized paths for all application directories
-# - Ensures required directory structure exists before operations
-# - Manages workspace layout (versions, data, backups, temporary files)
-# - Provides consistent file placement strategy across the application
-function Get-Paths {
-  $root = $SCRIPT:Cfg.RepoRoot
-  $versions = Join-Path $root $SCRIPT:Cfg.VersionsDirName
-  $data = Join-Path $root $SCRIPT:Cfg.DataDirName
-  $currentData = Join-Path $data "current"
-  $backups = Join-Path $data "backups"
-  $currentFile = Join-Path $root $SCRIPT:Cfg.CurrentFileName
-  $tmp = Join-Path $root "_tmp"
-  $downloads = Join-Path $root "_downloads"
+# - Calculates and provides standardized paths based on DirectorySpecs configuration
+# - Ensures required directory structure exists according to AutoCreate settings
+# - Manages workspace layout through configuration-driven approach
+# - Provides consistent file placement strategy that can be easily modified
 
-  [ordered]@{
-    Root       = $root
-    Versions   = $versions
-    Data       = $data
-    CurrentData= $currentData
-    Backups    = $backups
-    CurrentTxt = $currentFile
-    Tmp        = $tmp
-    Downloads  = $downloads
+function Resolve-DirectoryPath {
+  param(
+    [Parameter(Mandatory)][string]$Name,
+    [Parameter(Mandatory)][hashtable]$Spec
+  )
+  
+  $root = $SCRIPT:Cfg.RepoRoot
+  
+  # Handle special cases that reference config values
+  if ($null -eq $Spec.RelativePath) {
+    switch ($Name) {
+      "Versions" { return Join-Path $root $SCRIPT:Cfg.VersionsDirName }
+      "Data" { return Join-Path $root $SCRIPT:Cfg.DataDirName }
+      "CurrentTxt" { return Join-Path $root $SCRIPT:Cfg.CurrentFileName }
+      default { throw "No RelativePath specified for directory '$Name'" }
+    }
   }
+  
+  return Join-Path $root $Spec.RelativePath
+}
+
+function Get-Paths {
+  $paths = [ordered]@{}
+  
+  foreach ($name in $SCRIPT:DirectorySpecs.Keys) {
+    $spec = $SCRIPT:DirectorySpecs[$name]
+    $path = Resolve-DirectoryPath -Name $name -Spec $spec
+    $paths[$name] = $path
+  }
+  
+  # Add Root for backward compatibility
+  $paths["Root"] = $SCRIPT:Cfg.RepoRoot
+  
+  return $paths
 }
 
 function Ensure-Directories {
   param([Parameter(Mandatory)][hashtable]$P)
 
-  foreach ($d in @($P.Versions, $P.Data, $P.CurrentData, $P.Backups, $P.Tmp, $P.Downloads)) {
-    New-Item -ItemType Directory -Force -Path $d | Out-Null
+  foreach ($name in $SCRIPT:DirectorySpecs.Keys) {
+    $spec = $SCRIPT:DirectorySpecs[$name]
+    
+    # Skip files and directories that shouldn't be auto-created
+    if (-not $spec.AutoCreate) { continue }
+    if ($spec.ContainsKey("IsFile") -and $spec.IsFile) { continue }
+    
+    $path = $P[$name]
+    if ($path) {
+      Write-Log INFO "Ensuring directory exists: $name -> $path"
+      New-Item -ItemType Directory -Force -Path $path | Out-Null
+    }
   }
+}
 
-  New-Item -ItemType Directory -Force -Path (Join-Path $P.CurrentData "user-data") | Out-Null
-  New-Item -ItemType Directory -Force -Path (Join-Path $P.CurrentData "extensions") | Out-Null
+function Get-DirectoryInfo {
+  # Utility function to show current directory configuration
+  Write-Host "Directory Configuration:" -ForegroundColor Green
+  Write-Host "=======================" -ForegroundColor Green
+  
+  $paths = Get-Paths
+  $maxNameWidth = ($SCRIPT:DirectorySpecs.Keys | Measure-Object -Property Length -Maximum).Maximum
+  
+  foreach ($name in $SCRIPT:DirectorySpecs.Keys | Sort-Object) {
+    $spec = $SCRIPT:DirectorySpecs[$name]
+    $path = $paths[$name]
+    $padding = " " * ($maxNameWidth - $name.Length + 2)
+    
+    $status = ""
+    if ($spec.ContainsKey("IsFile") -and $spec.IsFile) {
+      $status = "[FILE]"
+    } elseif ($spec.AutoCreate) {
+      $status = "[AUTO]"
+    } else {
+      $status = "[MANUAL]"
+    }
+    
+    Write-Host "$name$padding$status " -NoNewline -ForegroundColor Cyan
+    Write-Host $path -ForegroundColor White
+    Write-Host (" " * ($maxNameWidth + 8)) -NoNewline
+    Write-Host $spec.Description -ForegroundColor DarkGray
+  }
 }
 #endregion Paths / Environment
 
