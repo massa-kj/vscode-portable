@@ -37,36 +37,183 @@ function Write-Log {
 
 #region Args
 # Command-line argument parsing module.
+# Responsibilities:
+# - Provides extensible, configuration-driven argument parsing
+# - Validates argument values and types according to specifications
+
+# Argument specification configuration
+$SCRIPT:ArgSpecs = @{
+  "--platform" = @{ 
+    PropertyName = "Platform"
+    Type = "String"
+    Required = $false
+    Description = "Target platform for VS Code download"
+    ValidValues = $null
+  }
+  "--quality" = @{
+    PropertyName = "Quality"
+    Type = "String" 
+    Required = $false
+    Description = "VS Code release quality"
+    ValidValues = @("stable", "insider")
+  }
+  "--version" = @{
+    PropertyName = "Version"
+    Type = "String"
+    Required = $false
+    Description = "Specific VS Code version to install"
+    ValidValues = $null
+  }
+  "--help" = @{
+    PropertyName = "Help"
+    Type = "Flag"
+    Required = $false
+    Description = "Show this help message and exit"
+    ValidValues = $null
+  }
+}
+
+function Validate-ArgumentValue {
+  param(
+    [Parameter(Mandatory)][hashtable]$Spec,
+    [Parameter(Mandatory)][string]$Value,
+    [Parameter(Mandatory)][string]$ArgName
+  )
+
+  # Type validation
+  switch ($Spec.Type) {
+    "String" {
+      # Already a string, basic validation passed
+    }
+    "Int" {
+      if (-not ($Value -match '^\d+$')) {
+        throw "Argument $ArgName expects an integer value, got: $Value"
+      }
+    }
+    "Bool" {
+      if ($Value -notin @("true", "false", "1", "0")) {
+        throw "Argument $ArgName expects a boolean value (true/false/1/0), got: $Value"
+      }
+    }
+    "Flag" {
+      # Flags don't have values, this should not be called for flags
+      throw "Internal error: Flag type should not reach value validation"
+    }
+  }
+
+  # ValidValues check
+  if ($Spec.ValidValues -and $Value -notin $Spec.ValidValues) {
+    $validStr = $Spec.ValidValues -join ", "
+    throw "Argument $ArgName must be one of: $validStr. Got: $Value"
+  }
+
+  return $Value
+}
+
 function Parse-Args {
   param([string[]]$Arguments)
 
-  $result = @{
-    Platform = $null
-    Quality  = $null
-    Version  = $null
+  # Initialize result with all possible properties set to null/false
+  $result = @{}
+  foreach ($spec in $SCRIPT:ArgSpecs.Values) {
+    if ($spec.Type -eq "Flag") {
+      $result[$spec.PropertyName] = $false
+    } else {
+      $result[$spec.PropertyName] = $null
+    }
   }
 
   for ($i = 0; $i -lt $Arguments.Length; $i++) {
-    switch ($Arguments[$i]) {
-      "--platform" {
-        $i++; if ($i -ge $Arguments.Length) { throw "Missing value for --platform" }
-        $result.Platform = $Arguments[$i]
+    $arg = $Arguments[$i]
+    
+    if (-not $SCRIPT:ArgSpecs.ContainsKey($arg)) {
+      throw "Unknown argument: $arg. Use --help to see available options."
+    }
+
+    $spec = $SCRIPT:ArgSpecs[$arg]
+    
+    if ($spec.Type -eq "Flag") {
+      # Flags don't take values, just set to true
+      $result[$spec.PropertyName] = $true
+    } else {
+      # Get next argument as value
+      $i++
+      if ($i -ge $Arguments.Length) { 
+        throw "Missing value for argument $arg"
       }
-      "--quality" {
-        $i++; if ($i -ge $Arguments.Length) { throw "Missing value for --quality" }
-        $result.Quality = $Arguments[$i]
-      }
-      "--version" {
-        $i++; if ($i -ge $Arguments.Length) { throw "Missing value for --version" }
-        $result.Version = $Arguments[$i]
-      }
-      default {
-        throw "Unknown argument: $($Arguments[$i])"
-      }
+      
+      $value = $Arguments[$i]
+      $validatedValue = Validate-ArgumentValue -Spec $spec -Value $value -ArgName $arg
+      $result[$spec.PropertyName] = $validatedValue
+    }
+  }
+
+  # Check if help was requested
+  if ($result.Help) {
+    Show-Help
+    exit 0
+  }
+
+  # Check required arguments
+  foreach ($argName in $SCRIPT:ArgSpecs.Keys) {
+    $spec = $SCRIPT:ArgSpecs[$argName]
+    if ($spec.Required -and $null -eq $result[$spec.PropertyName]) {
+      throw "Required argument $argName is missing. Use --help for more information."
     }
   }
 
   return $result
+}
+
+function Show-Help {
+  Write-Host ""
+  Write-Host "VS Code Portable" -ForegroundColor Green
+  Write-Host "========================" -ForegroundColor Green
+  Write-Host ""
+  Write-Host "Updates VS Code portable installation to the latest or specified version."
+  Write-Host ""
+  Write-Host "USAGE:" -ForegroundColor Yellow
+  Write-Host "    update.ps1 [OPTIONS]"
+  Write-Host ""
+  Write-Host "OPTIONS:" -ForegroundColor Yellow
+  
+  # Calculate max width for alignment
+  $maxArgWidth = ($SCRIPT:ArgSpecs.Keys | Measure-Object -Property Length -Maximum).Maximum
+  
+  foreach ($argName in $SCRIPT:ArgSpecs.Keys | Sort-Object) {
+    $spec = $SCRIPT:ArgSpecs[$argName]
+    $padding = " " * ($maxArgWidth - $argName.Length + 2)
+    
+    $typeInfo = ""
+    if ($spec.Type -eq "Flag") {
+      $typeInfo = ""
+    } else {
+      $typeInfo = " <$($spec.Type.ToLower())>"
+    }
+    
+    Write-Host "    $argName$typeInfo$padding" -NoNewline -ForegroundColor Cyan
+    Write-Host $spec.Description
+    
+    if ($spec.ValidValues) {
+      $validValuesStr = $spec.ValidValues -join ", "
+      Write-Host (" " * ($maxArgWidth + 6)) -NoNewline
+      Write-Host "Valid values: $validValuesStr" -ForegroundColor DarkGray
+    }
+    
+    if ($spec.Required) {
+      Write-Host (" " * ($maxArgWidth + 6)) -NoNewline
+      Write-Host "(Required)" -ForegroundColor Red
+    }
+  }
+  
+  Write-Host ""
+  Write-Host "EXAMPLES:" -ForegroundColor Yellow
+  Write-Host "    update.ps1                                   # Update to latest stable"
+  Write-Host "    update.ps1 --quality insider                 # Update to latest insider"
+  Write-Host "    update.ps1 --version 1.107.1                 # Install specific version"
+  Write-Host "    update.ps1 --platform win32-arm64-archive    # Use specific platform"
+  Write-Host "    update.ps1 --help                            # Show this help"
+  Write-Host ""
 }
 #endregion Args
 
