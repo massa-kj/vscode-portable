@@ -16,7 +16,7 @@ if not exist %CODE% (
   exit /b 1
 )
 
-%CODE% ^
+start "" /B %CODE% ^
   --user-data-dir "%BASE%data\current\user-data" ^
   --extensions-dir "%BASE%data\current\extensions"
 
