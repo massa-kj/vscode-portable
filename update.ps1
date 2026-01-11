@@ -71,6 +71,12 @@ $SCRIPT:DirectorySpecs = @{
     AutoCreate = $true
     Description = "VS Code extensions storage"
   }
+  "ExtensionsList" = @{
+    RelativePath = "data/current/extension-list.txt"
+    AutoCreate = $false
+    Description = "Snapshot of installed extension IDs"
+    IsFile = $true
+  }
 }
 #endregion Config
 
@@ -127,6 +133,13 @@ $SCRIPT:ArgSpecs = @{
     Type = "Flag"
     Required = $false
     Description = "Show directory configuration and exit"
+    ValidValues = $null
+  }
+  "--rebuild-extensions" = @{
+    PropertyName = "RebuildExtensions"
+    Type = "Flag"
+    Required = $false
+    Description = "Rebuild extensions directory from extension list (clean reinstall)"
     ValidValues = $null
   }
 }
@@ -276,6 +289,8 @@ function Show-Help {
   Write-Host "    update.ps1 --quality insider                 # Update to latest insider"
   Write-Host "    update.ps1 --version 1.107.1                 # Install specific version"
   Write-Host "    update.ps1 --platform win32-arm64-archive    # Use specific platform"
+  Write-Host "    update.ps1 --rebuild-extensions              # Rebuild extensions from list"
+  Write-Host "    update.ps1 --show-paths                      # Show all relevant paths"
   Write-Host "    update.ps1 --help                            # Show this help"
   Write-Host ""
 }
@@ -379,6 +394,7 @@ function Get-DirectoryInfo {
 # - Manages the current VS Code version pointer (current.txt file)
 # - Provides atomic version switching to prevent corruption during updates
 # - Reads and validates current version state
+# - Resolves executable paths for the current version
 # - Ensures safe version transitions using temporary file approach
 function Get-CurrentVersion {
   param([Parameter(Mandatory)][hashtable]$P)
@@ -397,6 +413,22 @@ function Set-CurrentVersionAtomically {
   $tmpFile = "$($P.CurrentTxt).tmp"
   Set-Content -LiteralPath $tmpFile -Value $Version -NoNewline
   Move-Item -LiteralPath $tmpFile -Destination $P.CurrentTxt -Force
+}
+
+function Get-CurrentCodeCli {
+  param([Parameter(Mandatory)][hashtable]$P)
+
+  $cur = Get-CurrentVersion -P $P
+  if (-not $cur) {
+    throw "No current version is set. Cannot rebuild extensions."
+  }
+
+  $codeCli = Join-Path $P.Versions "$cur\bin\code.cmd"
+  if (-not (Test-Path $codeCli)) {
+    throw "Current Code CLI not found: $codeCli"
+  }
+
+  return $codeCli
 }
 #endregion Current Version
 
@@ -589,12 +621,14 @@ function Install-ZipIfNeeded {
 #endregion Installer
 
 #region DataManager
-# User data backup and snapshot management module.
+# User data backup and extension management module.
 # Responsibilities:
 # - Creates timestamped backups of current user data before updates
 # - Manages user-data and extensions directories preservation
 # - Handles first-run scenarios where no existing data exists
 # - Provides rollback capability through snapshot management
+# - Exports and imports extension lists for reproducible environments
+# - Performs clean extension rebuilds from saved extension lists
 function Backup-CurrentData {
   param([Parameter(Mandatory)][hashtable]$P)
 
@@ -619,13 +653,92 @@ function Backup-CurrentData {
 
   return $dest
 }
+
+function Export-ExtensionsList {
+  param(
+    [Parameter(Mandatory)][string]$ExtensionsDir,
+    [Parameter(Mandatory)][string]$OutputFile
+  )
+
+  Write-Log INFO "Exporting extensions list from filesystem: $ExtensionsDir"
+
+  if (-not (Test-Path $ExtensionsDir)) {
+    Write-Log WARN "Extensions directory does not exist: $ExtensionsDir"
+    Set-Content -LiteralPath $OutputFile -Value ""
+    return
+  }
+
+  $ids = @()
+
+  Get-ChildItem -LiteralPath $ExtensionsDir -Directory | ForEach-Object {
+    # Folder name example: ms-python.python-2025.1.0
+    # We want: ms-python.python
+    if ($_.Name -match '^(.+)-\d') {
+      $ids += $Matches[1]
+    } else {
+      # Fallback: take whole name
+      $ids += $_.Name
+    }
+  }
+
+  $ids = @($ids | Sort-Object -Unique)
+
+  Write-Log INFO "Found $($ids.Count) extensions."
+
+  Set-Content -LiteralPath $OutputFile -Value ($ids -join "`n")
+}
+
+function Rebuild-Extensions {
+  param(
+    [Parameter(Mandatory)][string]$CodeExe,
+    [Parameter(Mandatory)][string]$ExtensionsListFile,
+    [Parameter(Mandatory)][string]$UserDataDir,
+    [Parameter(Mandatory)][string]$ExtensionsDir
+  )
+
+  if (-not (Test-Path $ExtensionsListFile)) {
+    throw "Extensions list file not found: $ExtensionsListFile"
+  }
+
+  Write-Log WARN "Rebuilding extensions from list: $ExtensionsListFile"
+
+  if (Test-Path $ExtensionsDir) {
+    Remove-Item -LiteralPath $ExtensionsDir -Recurse -Force
+  }
+  New-Item -ItemType Directory -Force -Path $ExtensionsDir | Out-Null
+
+  $ids = Get-Content -LiteralPath $ExtensionsListFile | Where-Object { $_.Trim() -ne "" }
+
+  foreach ($id in $ids) {
+    Write-Log INFO "Installing extension: $id"
+
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $CodeExe
+    $psi.Arguments = "--install-extension $id --user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`""
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.WaitForExit()
+
+    if ($p.ExitCode -ne 0) {
+      $stderr = $p.StandardError.ReadToEnd()
+      Write-Log WARN "Failed to install extension: $id - $stderr"
+    }
+  }
+}
 #endregion DataManager
 
 #region Main
 function Main {
   param([string[]]$Arguments = @())
-  
-  # Parse CLI args
+
+  # =========================
+  # Phase: Parse & setup
+  # =========================
+
   $opts = Parse-Args $Arguments
 
   if ($opts.Platform) { $SCRIPT:Cfg.Platform = $opts.Platform }
@@ -644,7 +757,41 @@ function Main {
     Write-Log INFO "Current version: (not set yet)"
   }
 
-  # Decide version source
+  # =========================
+  # Phase: RebuildExtension-only mode
+  # =========================
+
+  if ($opts.RebuildExtensions -and -not $opts.Version) {
+    Write-Log WARN "Running in rebuildExtension-only mode (no download, no install)."
+
+    # Export list (from FS)
+    Export-ExtensionsList `
+      -ExtensionsDir (Join-Path $P.CurrentData "extensions") `
+      -OutputFile $P.ExtensionsList
+
+    # Backup
+    $backupPath = Backup-CurrentData -P $P
+    if ($backupPath) {
+      Write-Log INFO "Backup created: $backupPath"
+    }
+
+    # Rebuild using current Code
+    $codeCli = Get-CurrentCodeCli -P $P
+
+    Rebuild-Extensions `
+      -CodeExe $codeCli `
+      -ExtensionsListFile $P.ExtensionsList `
+      -UserDataDir (Join-Path $P.CurrentData "user-data") `
+      -ExtensionsDir (Join-Path $P.CurrentData "extensions")
+
+    Write-Log INFO "RebuildExtension-only operation completed."
+    return
+  }
+
+  # =========================
+  # Phase: Resolve target version
+  # =========================
+
   if ($opts.Version) {
     $target = Get-SpecifiedVersionInfo `
       -Version $opts.Version `
@@ -658,33 +805,67 @@ function Main {
 
   Write-Log INFO "Target version: $($target.Version)"
 
-  # If same as current, do nothing
-  if ($cur -and $cur -eq $target.Version) {
+  # If same version and no rebuild requested → nothing to do
+  if ($cur -and $cur -eq $target.Version -and -not $opts.RebuildExtensions) {
     Write-Log INFO "No update needed. Already on target: $cur"
     return
   }
 
-  # Download
-  $zip = Download-Zip -P $P -Url $target.DownloadUrl -Version $target.Version
+  # =========================
+  # Phase: Ensure target version is installed
+  # =========================
 
-  # Verify checksum if available
-  if ($target.HasChecksum) {
-    Verify-Checksum -FilePath $zip -ExpectedSha256 $target.Sha256
-  } else {
-    Write-Log WARN "No checksum available for this download. Skipping verification."
+  $installedPath = Join-Path $P.Versions $target.Version
+
+  if (Test-Path $installedPath) {
+    Write-Log INFO "Target version already installed: $installedPath"
+    $newVer = $target.Version
+    $codeCli = Join-Path $installedPath "bin\code.cmd"
+  }
+  else {
+    Write-Log INFO "Target version is not installed yet. Installing..."
+
+    $zip = Download-Zip -P $P -Url $target.DownloadUrl -Version $target.Version
+
+    if ($target.HasChecksum) {
+      Verify-Checksum -FilePath $zip -ExpectedSha256 $target.Sha256
+    } else {
+      Write-Log WARN "No checksum available for this download. Skipping verification."
+    }
+
+    $result = Install-ZipIfNeeded -P $P -ZipPath $zip
+    $newVer = $result.Version
+    $codeCli = Join-Path $result.InstalledPath "bin\code.cmd"
   }
 
-  # Install / inspect
-  $result = Install-ZipIfNeeded -P $P -ZipPath $zip
-  $newVer = $result.Version
+  # =========================
+  # Phase: Data operations
+  # =========================
 
-  # Backup current data
+  # Export extensions list (before touching data)
+  Export-ExtensionsList `
+    -ExtensionsDir (Join-Path $P.CurrentData "extensions") `
+    -OutputFile $P.ExtensionsList
+
+  # Backup
   $backupPath = Backup-CurrentData -P $P
   if ($backupPath) {
     Write-Log INFO "Backup created: $backupPath"
   }
 
-  # Switch
+  # Optional rebuild
+  if ($opts.RebuildExtensions) {
+    Rebuild-Extensions `
+      -CodeExe $codeCli `
+      -ExtensionsListFile $P.ExtensionsList `
+      -UserDataDir (Join-Path $P.CurrentData "user-data") `
+      -ExtensionsDir (Join-Path $P.CurrentData "extensions")
+  }
+
+  # =========================
+  # Phase: Switch pointer
+  # =========================
+
   Set-CurrentVersionAtomically -P $P -Version $newVer
   Write-Log INFO "Switched current version to: $newVer"
 
