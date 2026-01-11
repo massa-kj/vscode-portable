@@ -3,7 +3,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 #region Config
+# Configuration management module.
 $SCRIPT:Cfg = [ordered]@{
+  # Application-wide configuration values
   RepoRoot        = Split-Path -Parent $MyInvocation.MyCommand.Path
   VersionsDirName = "versions"
   DataDirName     = "data"
@@ -13,6 +15,7 @@ $SCRIPT:Cfg = [ordered]@{
   Platform        = "win32-x64-archive"
   Quality         = "stable"
 
+  # Maintains VS Code download API endpoints and settings
   UpdateApi       = "https://update.code.visualstudio.com/api/update"
   DownloadBase    = "https://update.code.visualstudio.com"
 
@@ -21,6 +24,7 @@ $SCRIPT:Cfg = [ordered]@{
 #endregion Config
 
 #region Logger
+# Logging module for unified message output.
 function Write-Log {
   param(
     [Parameter(Mandatory)][ValidateSet("INFO","WARN","ERROR")][string]$Level,
@@ -32,6 +36,7 @@ function Write-Log {
 #endregion Logger
 
 #region Args
+# Command-line argument parsing module.
 function Parse-Args {
   param([string[]]$Arguments)
 
@@ -66,6 +71,12 @@ function Parse-Args {
 #endregion Args
 
 #region Paths / Environment
+# File path management and directory initialization module.
+# Responsibilities:
+# - Calculates and provides standardized paths for all application directories
+# - Ensures required directory structure exists before operations
+# - Manages workspace layout (versions, data, backups, temporary files)
+# - Provides consistent file placement strategy across the application
 function Get-Paths {
   $root = $SCRIPT:Cfg.RepoRoot
   $versions = Join-Path $root $SCRIPT:Cfg.VersionsDirName
@@ -101,6 +112,12 @@ function Ensure-Directories {
 #endregion Paths / Environment
 
 #region Current Version
+# Current version state management module.
+# Responsibilities:
+# - Manages the current VS Code version pointer (current.txt file)
+# - Provides atomic version switching to prevent corruption during updates
+# - Reads and validates current version state
+# - Ensures safe version transitions using temporary file approach
 function Get-CurrentVersion {
   param([Parameter(Mandatory)][hashtable]$P)
 
@@ -122,6 +139,12 @@ function Set-CurrentVersionAtomically {
 #endregion Current Version
 
 #region VersionSource
+# VS Code version information retrieval module.
+# Responsibilities:
+# - Fetches latest VS Code version information from official update API
+# - Constructs version information for specified versions
+# - Provides download URLs, checksums, and metadata for VS Code releases
+# - Handles both latest-version and specific-version request scenarios
 function Get-LatestVersionInfo {
   param(
     [Parameter(Mandatory)][string]$Platform,
@@ -168,6 +191,12 @@ function Get-SpecifiedVersionInfo {
 #endregion VersionSource
 
 #region Downloader
+# VS Code binary download and verification module.
+# Responsibilities:
+# - Downloads VS Code ZIP archives from official sources
+# - Implements download caching and reuse of existing files
+# - Performs integrity verification using SHA256 checksums
+# - Handles download failures and corrupted file detection with automatic retry
 function Download-Zip {
   param(
     [Parameter(Mandatory)][hashtable]$P,
@@ -227,6 +256,12 @@ function Verify-Checksum {
 #endregion Downloader
 
 #region Installer
+# VS Code installation module.
+# Responsibilities:
+# - Extracts VS Code ZIP archives to version-specific directories
+# - Automatically detects actual version numbers from extracted product.json
+# - Prevents duplicate installations and manages version isolation
+# - Validates installation completeness and binary integrity
 function Get-VersionFromExtracted {
   param([Parameter(Mandatory)][string]$ExtractDir)
 
@@ -292,6 +327,12 @@ function Install-ZipIfNeeded {
 #endregion Installer
 
 #region DataManager
+# User data backup and snapshot management module.
+# Responsibilities:
+# - Creates timestamped backups of current user data before updates
+# - Manages user-data and extensions directories preservation
+# - Handles first-run scenarios where no existing data exists
+# - Provides rollback capability through snapshot management
 function Backup-CurrentData {
   param([Parameter(Mandatory)][hashtable]$P)
 
