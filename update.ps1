@@ -214,98 +214,6 @@ function Show-Help {
 }
 #endregion Args
 
-#region Paths / Environment
-# File path management and directory initialization module.
-# Responsibilities:
-# - Calculates and provides standardized paths based on DirectorySpecs configuration
-# - Ensures required directory structure exists according to AutoCreate settings
-# - Manages workspace layout through configuration-driven approach
-# - Provides consistent file placement strategy that can be easily modified
-
-function Resolve-DirectoryPath {
-  param(
-    [Parameter(Mandatory)][string]$Name,
-    [Parameter(Mandatory)][hashtable]$Spec
-  )
-  
-  $root = $SCRIPT:Cfg.RepoRoot
-  
-  # Handle special cases that reference config values
-  if ($null -eq $Spec.RelativePath) {
-    switch ($Name) {
-      "Versions" { return Join-Path $root $SCRIPT:Cfg.VersionsDirName }
-      "Data" { return Join-Path $root $SCRIPT:Cfg.DataDirName }
-      "CurrentTxt" { return Join-Path $root $SCRIPT:Cfg.CurrentFileName }
-      default { throw "No RelativePath specified for directory '$Name'" }
-    }
-  }
-  
-  return Join-Path $root $Spec.RelativePath
-}
-
-function Get-Paths {
-  $paths = [ordered]@{}
-  
-  foreach ($name in $SCRIPT:DirectorySpecs.Keys) {
-    $spec = $SCRIPT:DirectorySpecs[$name]
-    $path = Resolve-DirectoryPath -Name $name -Spec $spec
-    $paths[$name] = $path
-  }
-  
-  # Add Root for backward compatibility
-  $paths["Root"] = $SCRIPT:Cfg.RepoRoot
-  
-  return $paths
-}
-
-function Ensure-Directories {
-  param([Parameter(Mandatory)][hashtable]$P)
-
-  foreach ($name in $SCRIPT:DirectorySpecs.Keys) {
-    $spec = $SCRIPT:DirectorySpecs[$name]
-    
-    # Skip files and directories that shouldn't be auto-created
-    if (-not $spec.AutoCreate) { continue }
-    if ($spec.ContainsKey("IsFile") -and $spec.IsFile) { continue }
-    
-    $path = $P[$name]
-    if ($path) {
-      Write-Log INFO "Ensuring directory exists: $name -> $path"
-      New-Item -ItemType Directory -Force -Path $path | Out-Null
-    }
-  }
-}
-
-function Get-DirectoryInfo {
-  # Utility function to show current directory configuration
-  Write-Host "Directory Configuration:" -ForegroundColor Green
-  Write-Host "=======================" -ForegroundColor Green
-  
-  $paths = Get-Paths
-  $maxNameWidth = ($SCRIPT:DirectorySpecs.Keys | Measure-Object -Property Length -Maximum).Maximum
-  
-  foreach ($name in $SCRIPT:DirectorySpecs.Keys | Sort-Object) {
-    $spec = $SCRIPT:DirectorySpecs[$name]
-    $path = $paths[$name]
-    $padding = " " * ($maxNameWidth - $name.Length + 2)
-    
-    $status = ""
-    if ($spec.ContainsKey("IsFile") -and $spec.IsFile) {
-      $status = "[FILE]"
-    } elseif ($spec.AutoCreate) {
-      $status = "[AUTO]"
-    } else {
-      $status = "[MANUAL]"
-    }
-    
-    Write-Host "$name$padding$status " -NoNewline -ForegroundColor Cyan
-    Write-Host $path -ForegroundColor White
-    Write-Host (" " * ($maxNameWidth + 8)) -NoNewline
-    Write-Host $spec.Description -ForegroundColor DarkGray
-  }
-}
-#endregion Paths / Environment
-
 #region Current Version
 # Current version state management module.
 # Responsibilities:
@@ -666,7 +574,7 @@ function Main {
   Write-Log INFO "Quality : $($SCRIPT:Cfg.Quality)"
 
   $P = Get-Paths
-  Ensure-Directories -P $P
+  New-Directories -P $P
 
   $cur = Get-CurrentVersion -P $P
   if ($cur) {

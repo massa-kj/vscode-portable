@@ -131,8 +131,6 @@ function Get-DirectorySpecs {
   return $copy
 }
 
-# Export functions
-Export-ModuleMember -Function Get-Config, Get-DirectorySpecs
 #endregion Config
 
 #region Logger
@@ -172,6 +170,161 @@ function Write-Log {
   Write-Host "[$ts][$Level] $Message"
 }
 
-# Export functions
-Export-ModuleMember -Function Write-Log
 #endregion Logger
+
+#region Paths
+<#
+.SYNOPSIS
+    File path management and directory initialization module.
+
+.DESCRIPTION
+    Provides standardized path resolution and directory structure management.
+    Handles workspace layout through configuration-driven approach.
+    
+    Responsibilities:
+    - Calculates and provides standardized paths based on DirectorySpecs configuration
+    - Ensures required directory structure exists according to AutoCreate settings
+    - Manages workspace layout through configuration-driven approach
+    - Provides consistent file placement strategy that can be easily modified
+#>
+
+function Resolve-DirectoryPath {
+  <#
+  .SYNOPSIS
+      Resolves a directory path based on configuration and specifications.
+  
+  .DESCRIPTION
+      Calculates the absolute path for a directory based on its specification
+      and the application configuration.
+      
+  .PARAMETER Name
+      The name of the directory as defined in DirectorySpecs.
+      
+  .PARAMETER Spec
+      The directory specification hashtable.
+      
+  .OUTPUTS
+      String containing the resolved absolute path.
+  #>
+  param(
+    [Parameter(Mandatory)][string]$Name,
+    [Parameter(Mandatory)][hashtable]$Spec
+  )
+  
+  $cfg = Get-Config
+  $root = $cfg.RepoRoot
+  
+  # Handle special cases that reference config values
+  if ($null -eq $Spec.RelativePath) {
+    switch ($Name) {
+      "Versions" { return Join-Path $root $cfg.VersionsDirName }
+      "Data" { return Join-Path $root $cfg.DataDirName }
+      "CurrentTxt" { return Join-Path $root $cfg.CurrentFileName }
+      default { throw "No RelativePath specified for directory '$Name'" }
+    }
+  }
+  
+  return Join-Path $root $Spec.RelativePath
+}
+
+function Get-Paths {
+  <#
+  .SYNOPSIS
+      Returns all resolved directory paths.
+  
+  .DESCRIPTION
+      Calculates and returns a hashtable containing all directory paths
+      based on the directory specifications.
+      
+  .OUTPUTS
+      Hashtable containing directory names as keys and absolute paths as values.
+  #>
+  $paths = [ordered]@{}
+  $directorySpecs = Get-DirectorySpecs
+  
+  foreach ($name in $directorySpecs.Keys) {
+    $spec = $directorySpecs[$name]
+    $path = Resolve-DirectoryPath -Name $name -Spec $spec
+    $paths[$name] = $path
+  }
+  
+  # Add Root for backward compatibility
+  $cfg = Get-Config
+  $paths["Root"] = $cfg.RepoRoot
+  
+  return $paths
+}
+
+function New-Directories {
+  <#
+  .SYNOPSIS
+      Creates required directories based on specifications.
+  
+  .DESCRIPTION
+      Creates directories that are marked for auto-creation in the directory
+      specifications. Skips files and manually managed directories.
+      
+  .PARAMETER P
+      Hashtable containing resolved paths (typically from Get-Paths).
+  #>
+  param([Parameter(Mandatory)][hashtable]$P)
+
+  $directorySpecs = Get-DirectorySpecs
+  
+  foreach ($name in $directorySpecs.Keys) {
+    $spec = $directorySpecs[$name]
+    
+    # Skip files and directories that shouldn't be auto-created
+    if (-not $spec.AutoCreate) { continue }
+    if ($spec.ContainsKey("IsFile") -and $spec.IsFile) { continue }
+    
+    $path = $P[$name]
+    if ($path) {
+      Write-Log INFO "Ensuring directory exists: $name -> $path"
+      New-Item -ItemType Directory -Force -Path $path | Out-Null
+    }
+  }
+}
+
+function Get-DirectoryInfo {
+  <#
+  .SYNOPSIS
+      Displays current directory configuration.
+  
+  .DESCRIPTION
+      Utility function to show the current directory configuration with
+      paths, creation status, and descriptions in a formatted output.
+  #>
+  # Utility function to show current directory configuration
+  Write-Host "Directory Configuration:" -ForegroundColor Green
+  Write-Host "=======================" -ForegroundColor Green
+  
+  $paths = Get-Paths
+  $directorySpecs = Get-DirectorySpecs
+  $maxNameWidth = ($directorySpecs.Keys | Measure-Object -Property Length -Maximum).Maximum
+  
+  foreach ($name in $directorySpecs.Keys | Sort-Object) {
+    $spec = $directorySpecs[$name]
+    $path = $paths[$name]
+    $padding = " " * ($maxNameWidth - $name.Length + 2)
+    
+    $status = ""
+    if ($spec.ContainsKey("IsFile") -and $spec.IsFile) {
+      $status = "[FILE]"
+    } elseif ($spec.AutoCreate) {
+      $status = "[AUTO]"
+    } else {
+      $status = "[MANUAL]"
+    }
+    
+    Write-Host "$name$padding$status " -NoNewline -ForegroundColor Cyan
+    Write-Host $path -ForegroundColor White
+    Write-Host (" " * ($maxNameWidth + 8)) -NoNewline
+    Write-Host $spec.Description -ForegroundColor DarkGray
+  }
+}
+
+#endregion Paths
+
+# Export all functions from this module
+Export-ModuleMember -Function Get-Config, Get-DirectorySpecs, Write-Log, Resolve-DirectoryPath, Get-Paths, New-Directories, Get-DirectoryInfo
