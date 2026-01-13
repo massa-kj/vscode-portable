@@ -10,6 +10,10 @@ Import-Module $CoreModulePath -Force
 $CliModulePath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "src\Cli.psm1"
 Import-Module $CliModulePath -Force
 
+# Import DataManager module for data backup and extension management
+$DataManagerModulePath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "src\DataManager.psm1"
+Import-Module $DataManagerModulePath -Force
+
 # Get configuration and directory specs from Core module
 $SCRIPT:Cfg = Get-Config
 $SCRIPT:DirectorySpecs = Get-DirectorySpecs
@@ -246,117 +250,6 @@ function Install-ZipIfNeeded {
 }
 #endregion Installer
 
-#region DataManager
-# User data backup and extension management module.
-# Responsibilities:
-# - Creates timestamped backups of current user data before updates
-# - Manages user-data and extensions directories preservation
-# - Handles first-run scenarios where no existing data exists
-# - Provides rollback capability through snapshot management
-# - Exports and imports extension lists for reproducible environments
-# - Performs clean extension rebuilds from saved extension lists
-function Backup-CurrentData {
-  param([Parameter(Mandatory)][hashtable]$P)
-
-  $ud = Join-Path $P.CurrentData "user-data"
-  $ext = Join-Path $P.CurrentData "extensions"
-
-  $hasAny =
-    (Test-Path $ud) -and ((Get-ChildItem -LiteralPath $ud -Force -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0) `
-    -or (Test-Path $ext) -and ((Get-ChildItem -LiteralPath $ext -Force -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0)
-
-  if (-not $hasAny) {
-    Write-Log INFO "No meaningful current data found; skipping backup (likely first run)."
-    return $null
-  }
-
-  $stamp = (Get-Date).ToString("yyyy-MM-dd_HHmmss")
-  $dest = Join-Path $P.Backups $stamp
-  New-Item -ItemType Directory -Force -Path $dest | Out-Null
-
-  Write-Log INFO "Backing up data/current -> $dest"
-  Copy-Item -Path (Join-Path $P.CurrentData "*") -Destination $dest -Recurse -Force
-
-  return $dest
-}
-
-function Export-ExtensionsList {
-  param(
-    [Parameter(Mandatory)][string]$ExtensionsDir,
-    [Parameter(Mandatory)][string]$OutputFile
-  )
-
-  Write-Log INFO "Exporting extensions list from filesystem: $ExtensionsDir"
-
-  if (-not (Test-Path $ExtensionsDir)) {
-    Write-Log WARN "Extensions directory does not exist: $ExtensionsDir"
-    Set-Content -LiteralPath $OutputFile -Value ""
-    return
-  }
-
-  $ids = @()
-
-  Get-ChildItem -LiteralPath $ExtensionsDir -Directory | ForEach-Object {
-    # Folder name example: ms-python.python-2025.1.0
-    # We want: ms-python.python
-    if ($_.Name -match '^(.+)-\d') {
-      $ids += $Matches[1]
-    } else {
-      # Fallback: take whole name
-      $ids += $_.Name
-    }
-  }
-
-  $ids = @($ids | Sort-Object -Unique)
-
-  Write-Log INFO "Found $($ids.Count) extensions."
-
-  Set-Content -LiteralPath $OutputFile -Value ($ids -join "`n")
-}
-
-function Rebuild-Extensions {
-  param(
-    [Parameter(Mandatory)][string]$CodeExe,
-    [Parameter(Mandatory)][string]$ExtensionsListFile,
-    [Parameter(Mandatory)][string]$UserDataDir,
-    [Parameter(Mandatory)][string]$ExtensionsDir
-  )
-
-  if (-not (Test-Path $ExtensionsListFile)) {
-    throw "Extensions list file not found: $ExtensionsListFile"
-  }
-
-  Write-Log WARN "Rebuilding extensions from list: $ExtensionsListFile"
-
-  if (Test-Path $ExtensionsDir) {
-    Remove-Item -LiteralPath $ExtensionsDir -Recurse -Force
-  }
-  New-Item -ItemType Directory -Force -Path $ExtensionsDir | Out-Null
-
-  $ids = Get-Content -LiteralPath $ExtensionsListFile | Where-Object { $_.Trim() -ne "" }
-
-  foreach ($id in $ids) {
-    Write-Log INFO "Installing extension: $id"
-
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $CodeExe
-    $psi.Arguments = "--install-extension $id --user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`""
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-
-    $p = [System.Diagnostics.Process]::Start($psi)
-    $p.WaitForExit()
-
-    if ($p.ExitCode -ne 0) {
-      $stderr = $p.StandardError.ReadToEnd()
-      Write-Log WARN "Failed to install extension: $id - $stderr"
-    }
-  }
-}
-#endregion DataManager
-
 #region Main
 function Main {
   param([string[]]$Arguments = @())
@@ -404,7 +297,7 @@ function Main {
     # Rebuild using current Code
     $codeCli = Get-CurrentCodeCli -P $P
 
-    Rebuild-Extensions `
+    Restore-Extensions `
       -CodeExe $codeCli `
       -ExtensionsListFile $P.ExtensionsList `
       -UserDataDir (Join-Path $P.CurrentData "user-data") `
@@ -481,7 +374,7 @@ function Main {
 
   # Optional rebuild
   if ($opts.RebuildExtensions) {
-    Rebuild-Extensions `
+    Restore-Extensions `
       -CodeExe $codeCli `
       -ExtensionsListFile $P.ExtensionsList `
       -UserDataDir (Join-Path $P.CurrentData "user-data") `
