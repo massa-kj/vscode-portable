@@ -134,3 +134,44 @@ function Get-DirectorySpecs {
 # Export functions
 Export-ModuleMember -Function Get-Config, Get-DirectorySpecs
 #endregion Config
+
+#region Logger
+<#
+.SYNOPSIS
+    Logging module for unified message output.
+
+.DESCRIPTION
+    Provides consistent logging functionality across the application.
+    Handles message formatting with timestamps and severity levels.
+#>
+
+function Write-Log {
+  <#
+  .SYNOPSIS
+      Writes a log message with timestamp and level.
+  
+  .DESCRIPTION
+      Outputs a formatted log message to the console with timestamp and severity level.
+      
+  .PARAMETER Level
+      The severity level of the message (INFO, WARN, ERROR).
+      
+  .PARAMETER Message
+      The message to log.
+      
+  .EXAMPLE
+      Write-Log INFO "Starting application"
+      Write-Log WARN "Configuration file not found, using defaults"
+      Write-Log ERROR "Failed to connect to server"
+  #>
+  param(
+    [Parameter(Mandatory)][ValidateSet("INFO","WARN","ERROR")][string]$Level,
+    [Parameter(Mandatory)][string]$Message
+  )
+  $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+  Write-Host "[$ts][$Level] $Message"
+}
+
+# Export functions
+Export-ModuleMember -Function Write-Log
+#endregion Logger

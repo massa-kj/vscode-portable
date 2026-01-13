@@ -10,18 +10,6 @@ Import-Module $CoreModulePath -Force
 $SCRIPT:Cfg = Get-Config
 $SCRIPT:DirectorySpecs = Get-DirectorySpecs
 
-#region Logger
-# Logging module for unified message output.
-function Write-Log {
-  param(
-    [Parameter(Mandatory)][ValidateSet("INFO","WARN","ERROR")][string]$Level,
-    [Parameter(Mandatory)][string]$Message
-  )
-  $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
-  Write-Host "[$ts][$Level] $Message"
-}
-#endregion Logger
-
 #region Args
 # Command-line argument parsing module.
 # Responsibilities:
