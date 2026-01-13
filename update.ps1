@@ -2,83 +2,13 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-#region Config
-# Configuration management module.
-$SCRIPT:Cfg = [ordered]@{
-  # Application-wide configuration values
-  RepoRoot        = Split-Path -Parent $MyInvocation.MyCommand.Path
-  VersionsDirName = "versions"
-  DataDirName     = "data"
-  CurrentFileName = "current.txt"
+# Import Core module for Config, Logger, and Paths functionality
+$CoreModulePath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "src\Core.psm1"
+Import-Module $CoreModulePath -Force
 
-  # Defaults (can be overridden by CLI args)
-  Platform        = "win32-x64-archive"
-  Quality         = "stable"
-
-  # Maintains VS Code download API endpoints and settings
-  UpdateApi       = "https://update.code.visualstudio.com/api/update"
-  DownloadBase    = "https://update.code.visualstudio.com"
-
-  UserAgent       = "vscode-portable-updater/0.1"
-}
-
-# Directory structure specification - defines workspace layout
-$SCRIPT:DirectorySpecs = @{
-  "Versions" = @{
-    RelativePath = $null  # Will use VersionsDirName from Cfg
-    AutoCreate = $true
-    Description = "VS Code version installations"
-  }
-  "Data" = @{
-    RelativePath = $null  # Will use DataDirName from Cfg  
-    AutoCreate = $true
-    Description = "User data and settings storage"
-  }
-  "CurrentData" = @{
-    RelativePath = "data/current"
-    AutoCreate = $true
-    Description = "Active user data and extensions"
-  }
-  "Backups" = @{
-    RelativePath = "data/backups"
-    AutoCreate = $true
-    Description = "Timestamped user data backups"
-  }
-  "Tmp" = @{
-    RelativePath = "_tmp"
-    AutoCreate = $true
-    Description = "Temporary files during operations"
-  }
-  "Downloads" = @{
-    RelativePath = "_downloads"
-    AutoCreate = $true
-    Description = "Downloaded VS Code archives cache"
-  }
-  "CurrentTxt" = @{
-    RelativePath = $null  # Will use CurrentFileName from Cfg
-    AutoCreate = $false
-    Description = "Current version pointer file"
-    IsFile = $true
-  }
-  # Sub-directories that need special handling
-  "UserData" = @{
-    RelativePath = "data/current/user-data"
-    AutoCreate = $true
-    Description = "VS Code user configuration and settings"
-  }
-  "Extensions" = @{
-    RelativePath = "data/current/extensions"
-    AutoCreate = $true
-    Description = "VS Code extensions storage"
-  }
-  "ExtensionsList" = @{
-    RelativePath = "data/current/extension-list.txt"
-    AutoCreate = $false
-    Description = "Snapshot of installed extension IDs"
-    IsFile = $true
-  }
-}
-#endregion Config
+# Get configuration and directory specs from Core module
+$SCRIPT:Cfg = Get-Config
+$SCRIPT:DirectorySpecs = Get-DirectorySpecs
 
 #region Logger
 # Logging module for unified message output.
