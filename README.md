@@ -142,10 +142,17 @@ vscode-portable/
 │       ├─ 2026-01-10_203000/
 │       └─ ...
 │
+├─ src/                      # Modular PowerShell libraries
+│   ├─ Core.psm1             # Config, Logger, Paths
+│   ├─ Cli.psm1              # CLI interface and argument parsing
+│   ├─ DataManager.psm1      # Data backup and extension management
+│   ├─ VersionManager.psm1   # Version info and current version management
+│   └─ VsCodePackage.psm1    # VS Code download and installation
+│
 ├─ current.txt               # Version number of VS Code currently in use
 │
 ├─ launch.cmd                # VS Code launcher (always use this)
-├─ update.ps1                # Download, update, and switch script
+├─ update.ps1                # Main script (orchestrates modules)
 ├─ README.md
 └─ .gitignore
 ```
