@@ -14,105 +14,13 @@ Import-Module $CliModulePath -Force
 $DataManagerModulePath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "src\DataManager.psm1"
 Import-Module $DataManagerModulePath -Force
 
+# Import VersionManager module for version information and current version management
+$VersionManagerModulePath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "src\VersionManager.psm1"
+Import-Module $VersionManagerModulePath -Force
+
 # Get configuration and directory specs from Core module
 $SCRIPT:Cfg = Get-Config
 $SCRIPT:DirectorySpecs = Get-DirectorySpecs
-
-#region Current Version
-# Current version state management module.
-# Responsibilities:
-# - Manages the current VS Code version pointer (current.txt file)
-# - Provides atomic version switching to prevent corruption during updates
-# - Reads and validates current version state
-# - Resolves executable paths for the current version
-# - Ensures safe version transitions using temporary file approach
-function Get-CurrentVersion {
-  param([Parameter(Mandatory)][hashtable]$P)
-
-  if (-not (Test-Path $P.CurrentTxt)) { return $null }
-  $v = (Get-Content -LiteralPath $P.CurrentTxt -ErrorAction Stop | Select-Object -First 1).Trim()
-  if ([string]::IsNullOrWhiteSpace($v)) { return $null }
-  return $v
-}
-
-function Set-CurrentVersionAtomically {
-  param(
-    [Parameter(Mandatory)][hashtable]$P,
-    [Parameter(Mandatory)][string]$Version
-  )
-  $tmpFile = "$($P.CurrentTxt).tmp"
-  Set-Content -LiteralPath $tmpFile -Value $Version -NoNewline
-  Move-Item -LiteralPath $tmpFile -Destination $P.CurrentTxt -Force
-}
-
-function Get-CurrentCodeCli {
-  param([Parameter(Mandatory)][hashtable]$P)
-
-  $cur = Get-CurrentVersion -P $P
-  if (-not $cur) {
-    throw "No current version is set. Cannot rebuild extensions."
-  }
-
-  $codeCli = Join-Path $P.Versions "$cur\bin\code.cmd"
-  if (-not (Test-Path $codeCli)) {
-    throw "Current Code CLI not found: $codeCli"
-  }
-
-  return $codeCli
-}
-#endregion Current Version
-
-#region VersionSource
-# VS Code version information retrieval module.
-# Responsibilities:
-# - Fetches latest VS Code version information from official update API
-# - Constructs version information for specified versions
-# - Provides download URLs, checksums, and metadata for VS Code releases
-# - Handles both latest-version and specific-version request scenarios
-function Get-LatestVersionInfo {
-  param(
-    [Parameter(Mandatory)][string]$Platform,
-    [Parameter(Mandatory)][string]$Quality
-  )
-
-  $url = "$($SCRIPT:Cfg.UpdateApi)/$Platform/$Quality/latest"
-  Write-Log INFO "Fetching latest version info: $url"
-
-  $headers = @{ "User-Agent" = $SCRIPT:Cfg.UserAgent }
-  $info = Invoke-RestMethod -Uri $url -Headers $headers -Method Get
-
-  if (-not $info.url -or -not $info.sha256hash -or -not $info.name) {
-    throw "Invalid update API response."
-  }
-
-  return [ordered]@{
-    Version     = [string]$info.name
-    DownloadUrl = [string]$info.url
-    Sha256      = [string]$info.sha256hash
-    HasChecksum = $true
-  }
-}
-
-function Get-SpecifiedVersionInfo {
-  param(
-    [Parameter(Mandatory)][string]$Version,
-    [Parameter(Mandatory)][string]$Platform,
-    [Parameter(Mandatory)][string]$Quality
-  )
-
-  $url = "$($SCRIPT:Cfg.DownloadBase)/$Version/$Platform/$Quality"
-
-  Write-Log INFO "Using specified version: $Version"
-  Write-Log INFO "Download URL: $url"
-
-  return [ordered]@{
-    Version     = $Version
-    DownloadUrl = $url
-    Sha256      = $null
-    HasChecksum = $false
-  }
-}
-#endregion VersionSource
 
 #region Downloader
 # VS Code binary download and verification module.
