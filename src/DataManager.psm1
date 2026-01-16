@@ -43,9 +43,29 @@ function Backup-CurrentData {
   $ud = Join-Path $P.CurrentData "user-data"
   $ext = Join-Path $P.CurrentData "extensions"
 
-  $hasAny =
-    (Test-Path $ud) -and ((Get-ChildItem -LiteralPath $ud -Force -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0) `
-    -or (Test-Path $ext) -and ((Get-ChildItem -LiteralPath $ext -Force -ErrorAction SilentlyContinue | Measure-Object).Count -gt 0)
+  # Check if current data directory exists first
+  if (-not (Test-Path $P.CurrentData)) {
+    Write-Log INFO "No meaningful current data found; skipping backup (likely first run)."
+    return $null
+  }
+
+  $hasAny = $false
+  
+  # Check user-data directory
+  if (Test-Path $ud) {
+    $udItems = @(Get-ChildItem -LiteralPath $ud -Force -ErrorAction SilentlyContinue)
+    if ($udItems.Count -gt 0) {
+      $hasAny = $true
+    }
+  }
+  
+  # Check extensions directory
+  if (-not $hasAny -and (Test-Path $ext)) {
+    $extItems = @(Get-ChildItem -LiteralPath $ext -Force -ErrorAction SilentlyContinue)
+    if ($extItems.Count -gt 0) {
+      $hasAny = $true
+    }
+  }
 
   if (-not $hasAny) {
     Write-Log INFO "No meaningful current data found; skipping backup (likely first run)."
@@ -89,7 +109,7 @@ function Export-ExtensionsList {
 
   if (-not (Test-Path $ExtensionsDir)) {
     Write-Log WARN "Extensions directory does not exist: $ExtensionsDir"
-    Set-Content -LiteralPath $OutputFile -Value ""
+    Set-Content -LiteralPath $OutputFile -Value "" -NoNewline
     return
   }
 
@@ -160,15 +180,15 @@ function Restore-Extensions {
   foreach ($id in $ids) {
     Write-Log INFO "Installing extension: $id"
 
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = $CodeExe
-    $psi.Arguments = "--install-extension $id --user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`""
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
+    $p = New-Object System.Diagnostics.Process
+    $p.StartInfo.FileName = $CodeExe
+    $p.StartInfo.Arguments = "--install-extension $id --user-data-dir `"$UserDataDir`" --extensions-dir `"$ExtensionsDir`""
+    $p.StartInfo.RedirectStandardOutput = $true
+    $p.StartInfo.RedirectStandardError = $true
+    $p.StartInfo.UseShellExecute = $false
+    $p.StartInfo.CreateNoWindow = $true
 
-    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.Start() | Out-Null
     $p.WaitForExit()
 
     if ($p.ExitCode -ne 0) {
