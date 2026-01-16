@@ -143,8 +143,13 @@ function Get-ExtractedVersion {
     throw "product.json not found in extracted archive."
   }
 
-  $product = Get-Content $productJson | ConvertFrom-Json
-  if (-not $product.version) {
+  try {
+    $product = Get-Content $productJson | ConvertFrom-Json
+  } catch {
+    throw "Failed to parse product.json: $($_.Exception.Message)"
+  }
+  
+  if (-not $product.PSObject.Properties['version'] -or -not $product.version) {
     throw "version not found in product.json"
   }
   return [string]$product.version
@@ -185,10 +190,10 @@ function Install-VsCodePackage {
   Write-Log INFO "Extracting zip to temp: $extractTmp"
   Expand-Archive -LiteralPath $ZipPath -DestinationPath $extractTmp -Force
 
-  # Normalize root
-  $items = Get-ChildItem -LiteralPath $extractTmp
+  # Normalize root - handle single subdirectory in ZIP
+  $items = @(Get-ChildItem -LiteralPath $extractTmp)
   $root = $extractTmp
-  if ($items.Count -eq 1 -and $items[0].PSIsContainer) {
+  if ($items.Length -eq 1 -and $items[0].PSIsContainer) {
     $root = $items[0].FullName
   }
 
