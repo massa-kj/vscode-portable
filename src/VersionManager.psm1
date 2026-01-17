@@ -4,38 +4,34 @@ Set-StrictMode -Version Latest
 #region VersionManager
 <#
 .SYNOPSIS
-    Version management module for VS Code Portable.
+    Version management module for VS Code Portable
 
 .DESCRIPTION
-    Provides comprehensive version management functionality including version information
-    retrieval from official APIs and current version state management.
+    Manages VS Code version information and current version state.
     
     Responsibilities:
-    - Fetches latest VS Code version information from official update API
-    - Constructs version information for specified versions
-    - Provides download URLs, checksums, and metadata for VS Code releases
-    - Manages the current VS Code version pointer (current.txt file)
-    - Provides atomic version switching to prevent corruption during updates
-    - Resolves executable paths for the current version
+    - Retrieves version information from official API or constructs for specified versions
+    - Manages current version pointer with atomic updates
+    - Resolves executable paths for active version
 #>
 
 function Get-LatestVersionInfo {
   <#
   .SYNOPSIS
-      Retrieves the latest VS Code version information from the official API.
+      Retrieves latest VS Code version information from official API
   
   .DESCRIPTION
-      Fetches version metadata including download URL, SHA256 checksum, and version
-      number from the Microsoft VS Code update API.
+      Fetches version metadata including download URL, SHA256 checksum,
+      and version number from Microsoft VS Code update API.
       
   .PARAMETER Platform
-      Target platform for VS Code download (e.g., "win32-x64-archive").
+      Target platform for VS Code download
       
   .PARAMETER Quality
-      Release quality ("stable" or "insider").
+      Release quality: "stable" or "insider"
       
   .OUTPUTS
-      Hashtable containing Version, DownloadUrl, Sha256, and HasChecksum properties.
+      Hashtable: Version, DownloadUrl, Sha256, HasChecksum properties
       
   .EXAMPLE
       $info = Get-LatestVersionInfo -Platform "win32-x64-archive" -Quality "stable"
@@ -67,23 +63,23 @@ function Get-LatestVersionInfo {
 function Get-SpecifiedVersionInfo {
   <#
   .SYNOPSIS
-      Constructs version information for a specified VS Code version.
+      Constructs version information for a specified VS Code version
   
   .DESCRIPTION
       Creates version metadata for a specific version without API lookup.
-      Note that checksum verification is not available for specified versions.
+      Checksum verification is not available for specified versions.
       
   .PARAMETER Version
-      Specific VS Code version to target.
+      Specific VS Code version to target
       
   .PARAMETER Platform
-      Target platform for VS Code download.
+      Target platform for VS Code download
       
   .PARAMETER Quality
-      Release quality ("stable" or "insider").
+      Release quality: "stable" or "insider"
       
   .OUTPUTS
-      Hashtable containing Version, DownloadUrl, Sha256, and HasChecksum properties.
+      Hashtable: Version, DownloadUrl, Sha256, HasChecksum properties
       
   .EXAMPLE
       $info = Get-SpecifiedVersionInfo -Version "1.107.1" -Platform "win32-x64-archive" -Quality "stable"
@@ -111,17 +107,17 @@ function Get-SpecifiedVersionInfo {
 function Get-CurrentVersion {
   <#
   .SYNOPSIS
-      Retrieves the currently active VS Code version.
+      Retrieves currently active VS Code version
   
   .DESCRIPTION
-      Reads the current version from the version pointer file (current.txt).
+      Reads current version from version pointer file.
       Returns null if no version is set or file doesn't exist.
       
   .PARAMETER P
-      Hashtable containing resolved paths (typically from Get-Paths).
+      Resolved paths hashtable from Get-Paths
       
   .OUTPUTS
-      String containing the current version, or $null if not set.
+      String: Current version, or $null if not set
       
   .EXAMPLE
       $P = Get-Paths
@@ -138,17 +134,17 @@ function Get-CurrentVersion {
 function Set-CurrentVersionAtomically {
   <#
   .SYNOPSIS
-      Atomically updates the current version pointer.
+      Atomically updates current version pointer
   
   .DESCRIPTION
-      Updates the current version using a temporary file approach to prevent
-      corruption during the update process. Ensures safe version transitions.
+      Updates current version using temporary file approach to prevent
+      corruption during update process.
       
   .PARAMETER P
-      Hashtable containing resolved paths (typically from Get-Paths).
+      Resolved paths hashtable from Get-Paths
       
   .PARAMETER Version
-      Version string to set as current.
+      Version string to set as current
       
   .EXAMPLE
       $P = Get-Paths
@@ -166,17 +162,20 @@ function Set-CurrentVersionAtomically {
 function Get-CurrentCodeCli {
   <#
   .SYNOPSIS
-      Resolves the path to the current VS Code CLI executable.
+      Resolves path to current VS Code CLI executable
   
   .DESCRIPTION
-      Returns the full path to the code.cmd CLI for the currently active
-      VS Code version. Throws an error if no version is set or CLI not found.
+      Returns full path to code.cmd CLI for currently active VS Code version.
+      Throws error if no version is set or CLI not found.
       
   .PARAMETER P
-      Hashtable containing resolved paths (typically from Get-Paths).
+      Resolved paths hashtable from Get-Paths
       
   .OUTPUTS
-      String containing the full path to code.cmd.
+      String: Full path to code.cmd
+      
+  .THROWS
+      Exception when no current version or CLI not found
       
   .EXAMPLE
       $P = Get-Paths

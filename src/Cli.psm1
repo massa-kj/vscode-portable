@@ -4,17 +4,29 @@ Set-StrictMode -Version Latest
 #region Cli
 <#
 .SYNOPSIS
-    Command-line interface module for VS Code Portable.
+    Command-line interface module for VS Code Portable argument processing.
 
 .DESCRIPTION
-    Provides comprehensive CLI functionality including argument parsing, validation,
-    and help generation. Uses a configuration-driven approach for extensibility.
+    Provides complete CLI functionality for VS Code Portable application including
+    argument parsing, validation, and help generation. Uses configuration-driven
+    approach through ArgSpecs for maintainability and extensibility.
     
-    Responsibilities:
-    - Command-line argument parsing with type validation
-    - Extensible argument specification system
-    - Automated help message generation
-    - User input validation and error reporting
+    Core Responsibilities:
+    - Command-line argument parsing with comprehensive validation
+    - Type checking and value constraint enforcement  
+    - Automated help generation synchronized with argument specifications
+    - Special action handling (help display, path information)
+    - Structured argument object creation for application consumption
+    
+    Public API:
+    - ConvertTo-ParsedArgs: Main entry point for argument processing
+    - Show-Help: Help display functionality (also callable via --help)
+    - Test-ArgumentValue: Argument validation (used internally and by tests)
+    
+    Configuration:
+    - ArgSpecs: Declarative argument specification defining all CLI behavior
+    - Supports String, Int, Bool, and Flag types with optional ValidValues constraints
+    - Extensible through ArgSpecs modification without code changes
 #>
 
 # Argument specification configuration
@@ -66,23 +78,27 @@ $script:ArgSpecs = @{
 function Test-ArgumentValue {
   <#
   .SYNOPSIS
-      Validates an argument value against its specification.
+      Validates argument value against specification rules.
   
   .DESCRIPTION
-      Performs type validation and value validation for command-line arguments
-      based on the argument specification.
+      Performs type validation (String, Int, Bool, Flag) and value constraint validation
+      based on ArgSpecs configuration. Ensures command-line input conforms to expected
+      format and acceptable values.
       
   .PARAMETER Spec
-      The argument specification hashtable.
+      [Hashtable] Argument specification containing Type, ValidValues, and validation rules.
       
   .PARAMETER Value
-      The value to validate.
+      [String] Raw argument value from command line to validate.
       
   .PARAMETER ArgName
-      The argument name for error reporting.
+      [String] Argument name for error reporting and user feedback.
       
   .OUTPUTS
-      String containing the validated value.
+      [String] Validated and potentially converted value that conforms to specification.
+      
+  .THROWS
+      [System.Exception] When value fails type validation or is not in ValidValues list.
   #>
   param(
     [Parameter(Mandatory)][hashtable]$Spec,
@@ -123,17 +139,27 @@ function Test-ArgumentValue {
 function ConvertTo-ParsedArgs {
   <#
   .SYNOPSIS
-      Parses command-line arguments based on specifications.
+      Transforms raw command-line arguments into validated argument object.
   
   .DESCRIPTION
-      Converts raw command-line arguments into a structured hashtable
-      with validation and type checking.
+      Parses command-line arguments according to ArgSpecs configuration, performing
+      validation, type checking, and required argument verification. Handles special
+      actions (--help, --show-paths) by executing and exiting. Returns structured
+      argument object for application use.
       
   .PARAMETER Arguments
-      Array of command-line arguments to parse.
+      [String[]] Raw command-line arguments array (typically from $args).
       
   .OUTPUTS
-      Hashtable containing parsed and validated arguments.
+      [Hashtable] Parsed arguments with property names as keys and validated values.
+      All ArgSpecs properties are present (null/false for unspecified arguments).
+      
+  .THROWS
+      [System.Exception] When unknown argument, missing required argument, or validation fails.
+      
+  .NOTES
+      Special handling: --help and --show-paths execute their function and exit(0).
+      Required argument validation occurs after parsing all arguments.
   #>
   param([string[]]$Arguments)
 
@@ -201,11 +227,20 @@ function ConvertTo-ParsedArgs {
 function Show-Help {
   <#
   .SYNOPSIS
-      Displays help information for the CLI.
+      Displays formatted help information for all available CLI options.
   
   .DESCRIPTION
-      Generates and displays formatted help text including usage,
-      options, and examples based on the argument specifications.
+      Generates comprehensive help output including usage syntax, all available
+      options with descriptions and constraints, and practical examples.
+      Dynamically generates content from ArgSpecs configuration to ensure
+      consistency with actual CLI behavior.
+      
+  .OUTPUTS
+      None. Writes formatted help text directly to console with color formatting.
+      
+  .NOTES
+      Help content is automatically synchronized with ArgSpecs configuration.
+      Includes usage patterns, option descriptions, valid values, and examples.
   #>
   Write-Host ""
   Write-Host "VS Code Portable" -ForegroundColor Green

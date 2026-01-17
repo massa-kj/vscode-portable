@@ -4,16 +4,15 @@ Set-StrictMode -Version Latest
 #region Config
 <#
 .SYNOPSIS
-    Configuration management module for VS Code Portable.
+    Configuration management module for VS Code Portable
 
 .DESCRIPTION
-    Provides centralized configuration values and directory specifications.
-    Manages application-wide settings, API endpoints, and workspace layout definitions.
+    Provides centralized configuration and directory structure definitions.
     
     Responsibilities:
-    - Application-wide configuration values (paths, defaults, API endpoints)
-    - Directory structure specification for workspace layout
-    - Immutable configuration access
+    - Application-wide configuration values access
+    - Directory structure specification
+    - Immutable configuration interface
 #>
 
 # Application-wide configuration values
@@ -95,13 +94,14 @@ $script:DirectorySpecs = @{
 function Get-Config {
   <#
   .SYNOPSIS
-      Returns the application configuration.
+      Returns application configuration
   
   .DESCRIPTION
-      Provides read-only access to the application-wide configuration values.
+      Provides read-only access to application-wide configuration values.
+      Returns a defensive copy to prevent external modifications.
       
   .OUTPUTS
-      Hashtable containing configuration values.
+      Hashtable: Configuration with RepoRoot, Platform, Quality, UpdateApi, etc.
   #>
   # Create a copy to prevent external modification
   $copy = [ordered]@{}
@@ -114,14 +114,14 @@ function Get-Config {
 function Get-DirectorySpecs {
   <#
   .SYNOPSIS
-      Returns the directory structure specifications.
+      Returns directory structure specifications
   
   .DESCRIPTION
-      Provides read-only access to the directory specifications that define
-      the workspace layout and directory creation behavior.
+      Provides read-only access to directory specifications that define
+      workspace layout and auto-creation behavior.
       
   .OUTPUTS
-      Hashtable containing directory specifications.
+      Hashtable: Directory specifications with RelativePath, AutoCreate, Description properties
   #>
   # Create a deep copy to prevent external modification
   $copy = @{}
@@ -136,31 +136,33 @@ function Get-DirectorySpecs {
 #region Logger
 <#
 .SYNOPSIS
-    Logging module for unified message output.
+    Logging module for unified message output
 
 .DESCRIPTION
     Provides consistent logging functionality across the application.
-    Handles message formatting with timestamps and severity levels.
+    
+    Responsibilities:
+    - Timestamped message output with severity levels
+    - Centralized logging interface
 #>
 
 function Write-Log {
   <#
   .SYNOPSIS
-      Writes a log message with timestamp and level.
+      Writes timestamped log message with severity level
   
   .DESCRIPTION
-      Outputs a formatted log message to the console with timestamp and severity level.
+      Outputs formatted log messages to console with timestamp and level.
       
   .PARAMETER Level
-      The severity level of the message (INFO, WARN, ERROR).
+      Message severity level: INFO, WARN, or ERROR
       
   .PARAMETER Message
-      The message to log.
+      Message content to log
       
   .EXAMPLE
       Write-Log INFO "Starting application"
-      Write-Log WARN "Configuration file not found, using defaults"
-      Write-Log ERROR "Failed to connect to server"
+      Write-Log WARN "Configuration file not found"
   #>
   param(
     [Parameter(Mandatory)][ValidateSet("INFO","WARN","ERROR")][string]$Level,
@@ -175,36 +177,37 @@ function Write-Log {
 #region Paths
 <#
 .SYNOPSIS
-    File path management and directory initialization module.
+    File path management and directory initialization module
 
 .DESCRIPTION
     Provides standardized path resolution and directory structure management.
-    Handles workspace layout through configuration-driven approach.
     
     Responsibilities:
-    - Calculates and provides standardized paths based on DirectorySpecs configuration
-    - Ensures required directory structure exists according to AutoCreate settings
-    - Manages workspace layout through configuration-driven approach
-    - Provides consistent file placement strategy that can be easily modified
+    - Resolves absolute paths based on configuration
+    - Ensures required directory structure exists
+    - Provides consistent workspace layout management
 #>
 
 function Resolve-DirectoryPath {
   <#
   .SYNOPSIS
-      Resolves a directory path based on configuration and specifications.
+      Resolves directory name to absolute path
   
   .DESCRIPTION
-      Calculates the absolute path for a directory based on its specification
-      and the application configuration.
+      Calculates absolute path for a directory based on configuration.
+      Handles special cases that reference configuration values.
       
   .PARAMETER Name
-      The name of the directory as defined in DirectorySpecs.
+      Directory name as defined in DirectorySpecs
       
   .PARAMETER Spec
-      The directory specification hashtable.
+      Directory specification hashtable
       
   .OUTPUTS
-      String containing the resolved absolute path.
+      String: Absolute path to the directory
+      
+  .THROWS
+      Exception when RelativePath is null and Name is not recognized
   #>
   param(
     [Parameter(Mandatory)][string]$Name,
@@ -230,14 +233,14 @@ function Resolve-DirectoryPath {
 function Get-Paths {
   <#
   .SYNOPSIS
-      Returns all resolved directory paths.
+      Returns all resolved absolute directory paths
   
   .DESCRIPTION
-      Calculates and returns a hashtable containing all directory paths
-      based on the directory specifications.
+      Calculates absolute paths for all directories defined in DirectorySpecs.
+      Provides consistent path resolution interface for the application.
       
   .OUTPUTS
-      Hashtable containing directory names as keys and absolute paths as values.
+      Hashtable: Directory names mapped to absolute path strings
   #>
   $paths = [ordered]@{}
   $directorySpecs = Get-DirectorySpecs
@@ -258,14 +261,14 @@ function Get-Paths {
 function New-Directories {
   <#
   .SYNOPSIS
-      Creates required directories based on specifications.
+      Creates required directories according to configuration
   
   .DESCRIPTION
-      Creates directories that are marked for auto-creation in the directory
-      specifications. Skips files and manually managed directories.
+      Creates directories marked with AutoCreate=true in DirectorySpecs.
+      Ensures workspace structure exists before operations.
       
   .PARAMETER P
-      Hashtable containing resolved paths (typically from Get-Paths).
+      Resolved paths hashtable from Get-Paths
   #>
   param([Parameter(Mandatory)][hashtable]$P)
 
@@ -289,11 +292,12 @@ function New-Directories {
 function Get-DirectoryInfo {
   <#
   .SYNOPSIS
-      Displays current directory configuration.
+      Displays formatted directory configuration information
   
   .DESCRIPTION
-      Utility function to show the current directory configuration with
-      paths, creation status, and descriptions in a formatted output.
+      Outputs current directory configuration including paths,
+      creation behavior, and descriptions in formatted table.
+      Used for troubleshooting and documentation.
   #>
   # Utility function to show current directory configuration
   Write-Host "Directory Configuration:" -ForegroundColor Green

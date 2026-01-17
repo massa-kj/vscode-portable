@@ -4,42 +4,38 @@ Set-StrictMode -Version Latest
 #region VsCodePackage
 <#
 .SYNOPSIS
-    VS Code package download and installation module for VS Code Portable.
+    VS Code package download and installation module
 
 .DESCRIPTION
-    Provides comprehensive VS Code package management functionality including download,
-    verification, extraction, and installation of VS Code archives.
+    Manages VS Code package download, verification, and installation.
     
     Responsibilities:
-    - Downloads VS Code ZIP archives from official sources with caching
-    - Implements integrity verification using SHA256 checksums
-    - Handles download failures and corrupted file detection with automatic retry
-    - Extracts VS Code ZIP archives to version-specific directories
-    - Automatically detects actual version numbers from extracted product.json
-    - Prevents duplicate installations and manages version isolation
-    - Validates installation completeness and binary integrity
+    - Downloads VS Code archives with caching and integrity verification
+    - Extracts and installs VS Code to version-specific directories
+    - Detects actual version numbers from extracted installations
+    - Prevents duplicate installations
 #>
 
 function Invoke-VsCodeDownload {
   <#
   .SYNOPSIS
-      Downloads VS Code ZIP archive with caching and integrity verification.
+      Downloads VS Code ZIP archive with caching and verification
   
   .DESCRIPTION
-      Downloads VS Code from the specified URL with smart caching. Reuses existing
-      downloads if they pass integrity checks, otherwise re-downloads automatically.
+      Downloads VS Code from specified URL with smart caching.
+      Reuses existing downloads if they pass integrity checks.
       
   .PARAMETER P
-      Hashtable containing resolved paths (typically from Get-Paths).
+      Resolved paths hashtable from Get-Paths
       
   .PARAMETER Url
-      Download URL for the VS Code archive.
+      Download URL for VS Code archive
       
   .PARAMETER Version
-      Version string for cache file naming.
+      Version string for cache file naming
       
   .OUTPUTS
-      String containing the path to the downloaded ZIP file.
+      String: Path to downloaded ZIP file
       
   .EXAMPLE
       $P = Get-Paths
@@ -86,17 +82,20 @@ function Invoke-VsCodeDownload {
 function Test-PackageChecksum {
   <#
   .SYNOPSIS
-      Verifies the SHA256 checksum of a downloaded package.
+      Verifies SHA256 checksum of downloaded package
   
   .DESCRIPTION
-      Calculates and compares SHA256 hash of the specified file against
-      the expected checksum. Throws an error if checksums don't match.
+      Calculates and compares SHA256 hash against expected checksum.
+      Throws error if checksums don't match.
       
   .PARAMETER FilePath
-      Path to the file to verify.
+      Path to file to verify
       
   .PARAMETER ExpectedSha256
-      Expected SHA256 hash in hexadecimal format.
+      Expected SHA256 hash in hexadecimal format
+      
+  .THROWS
+      Exception when checksum verification fails
       
   .EXAMPLE
       Test-PackageChecksum -FilePath "vscode.zip" -ExpectedSha256 "abc123..."
@@ -121,17 +120,20 @@ function Test-PackageChecksum {
 function Get-ExtractedVersion {
   <#
   .SYNOPSIS
-      Extracts version information from VS Code installation directory.
+      Extracts version information from VS Code installation directory
   
   .DESCRIPTION
-      Reads the product.json file from an extracted VS Code installation
-      to determine the actual version number.
+      Reads product.json file from extracted VS Code installation
+      to determine actual version number.
       
   .PARAMETER ExtractDir
-      Path to the extracted VS Code directory.
+      Path to extracted VS Code directory
       
   .OUTPUTS
-      String containing the version number.
+      String: Version number from product.json
+      
+  .THROWS
+      Exception when product.json not found or invalid
       
   .EXAMPLE
       $version = Get-ExtractedVersion -ExtractDir "C:\temp\vscode"
@@ -158,21 +160,23 @@ function Get-ExtractedVersion {
 function Install-VsCodePackage {
   <#
   .SYNOPSIS
-      Installs VS Code from ZIP archive if not already installed.
+      Installs VS Code from ZIP archive if not already installed
   
   .DESCRIPTION
-      Extracts VS Code ZIP archive to a temporary location, reads the actual
-      version from product.json, and installs it to the appropriate version
-      directory. Skips installation if the version is already present.
+      Extracts VS Code ZIP archive, reads actual version from product.json,
+      and installs to appropriate version directory. Skips if version exists.
       
   .PARAMETER P
-      Hashtable containing resolved paths (typically from Get-Paths).
+      Resolved paths hashtable from Get-Paths
       
   .PARAMETER ZipPath
-      Path to the VS Code ZIP archive to install.
+      Path to VS Code ZIP archive to install
       
   .OUTPUTS
-      Hashtable containing Version, InstalledPath, and IsNew properties.
+      Hashtable: Version, InstalledPath, IsNew properties
+      
+  .THROWS
+      Exception when extraction fails or installation incomplete
       
   .EXAMPLE
       $P = Get-Paths

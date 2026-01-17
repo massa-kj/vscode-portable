@@ -4,35 +4,31 @@ Set-StrictMode -Version Latest
 #region DataManager
 <#
 .SYNOPSIS
-    User data backup and extension management module for VS Code Portable.
+    Data management module for VS Code Portable
 
 .DESCRIPTION
-    Provides comprehensive data management functionality including timestamped backups,
-    extension list management, and clean extension rebuilds.
+    Manages user data protection and extension handling.
     
     Responsibilities:
-    - Creates timestamped backups of current user data before updates
-    - Manages user-data and extensions directories preservation
-    - Handles first-run scenarios where no existing data exists
-    - Provides rollback capability through snapshot management
-    - Exports and imports extension lists for reproducible environments
-    - Performs clean extension rebuilds from saved extension lists
+    - Creates timestamped backups of user data
+    - Exports and restores extension lists
+    - Handles first-run scenarios appropriately
 #>
 
 function Backup-CurrentData {
   <#
   .SYNOPSIS
-      Creates a timestamped backup of current user data.
+      Creates a timestamped backup of current user data
   
   .DESCRIPTION
-      Backs up the current user data and extensions to a timestamped folder
-      in the backups directory. Skips backup if no meaningful data exists.
+      Backs up current user data and extensions to a timestamped folder.
+      Skips backup if no data exists (e.g., first run).
       
   .PARAMETER P
-      Hashtable containing resolved paths (typically from Get-Paths).
+      Hashtable containing path information
       
   .OUTPUTS
-      String containing the backup directory path, or $null if no backup was created.
+      String: Path to backup folder, or $null if no backup was created
       
   .EXAMPLE
       $P = Get-Paths
@@ -85,17 +81,17 @@ function Backup-CurrentData {
 function Export-ExtensionsList {
   <#
   .SYNOPSIS
-      Exports the list of installed extensions to a file.
+      Exports installed extensions list to a file
   
   .DESCRIPTION
-      Scans the extensions directory and extracts extension IDs from folder names,
-      then saves them to a text file for later restoration.
+      Scans extensions directory and extracts extension IDs,
+      then saves them to a text file.
       
   .PARAMETER ExtensionsDir
-      Path to the extensions directory to scan.
+      Path to extensions directory to scan
       
   .PARAMETER OutputFile
-      Path to the output file where extension IDs will be saved.
+      Path to output file for extension IDs
       
   .EXAMPLE
       Export-ExtensionsList -ExtensionsDir "C:\path\to\extensions" -OutputFile "extensions.txt"
@@ -136,23 +132,23 @@ function Export-ExtensionsList {
 function Restore-Extensions {
   <#
   .SYNOPSIS
-      Performs a clean rebuild of extensions from a saved list.
+      Reinstalls extensions from a saved list
   
   .DESCRIPTION
-      Removes the current extensions directory and reinstalls all extensions
+      Removes current extensions directory and reinstalls all extensions
       listed in the extensions list file using VS Code CLI.
       
   .PARAMETER CodeExe
-      Path to the VS Code executable for installing extensions.
+      Path to VS Code executable
       
   .PARAMETER ExtensionsListFile
-      Path to the file containing the list of extension IDs to install.
+      Path to file containing extension IDs to install
       
   .PARAMETER UserDataDir
-      Path to the VS Code user data directory.
+      Path to VS Code user data directory
       
   .PARAMETER ExtensionsDir
-      Path to the extensions directory to rebuild.
+      Path to extensions directory to rebuild
       
   .EXAMPLE
       Restore-Extensions -CodeExe "code.exe" -ExtensionsListFile "extensions.txt" -UserDataDir "userdata" -ExtensionsDir "extensions"
