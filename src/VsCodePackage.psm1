@@ -140,8 +140,25 @@ function Get-ExtractedVersion {
   #>
   param([Parameter(Mandatory)][string]$ExtractDir)
 
-  $productJson = Join-Path $ExtractDir "resources\app\product.json"
-  if (-not (Test-Path $productJson)) {
+  # Try multiple possible locations for product.json
+  $productJson = $null
+  
+  # Standard location
+  $standardPath = Join-Path $ExtractDir "resources\app\product.json"
+  if (Test-Path $standardPath) {
+    $productJson = $standardPath
+  } else {
+    # Search for product.json in subdirectories (new VS Code archive structure)
+    $found = Get-ChildItem -LiteralPath $ExtractDir -Directory -ErrorAction SilentlyContinue | Where-Object {
+      Test-Path (Join-Path $_.FullName "resources\app\product.json")
+    } | Select-Object -First 1
+    
+    if ($found) {
+      $productJson = Join-Path $found.FullName "resources\app\product.json"
+    }
+  }
+  
+  if (-not $productJson -or -not (Test-Path $productJson)) {
     throw "product.json not found in extracted archive."
   }
 
@@ -154,6 +171,7 @@ function Get-ExtractedVersion {
   if (-not $product.PSObject.Properties['version'] -or -not $product.version) {
     throw "version not found in product.json"
   }
+  
   return [string]$product.version
 }
 
